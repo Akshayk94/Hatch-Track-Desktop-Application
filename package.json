@@ -1,0 +1,32 @@
+{
+  "name": "hatch-track-app",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable",
+    "dist:mac-arm": "electron-builder --mac dmg --arm64"
+  },
+  "build": {
+    "appId": "com.hatchtrack.app",
+    "productName": "HatchTrackAdmin",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "backend/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "files": [
+      "main.js",
+      "frontend/**/*",
+      "backend/**/*"
+    ]
+  }
+}

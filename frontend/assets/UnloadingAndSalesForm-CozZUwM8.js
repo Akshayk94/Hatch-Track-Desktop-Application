@@ -1,0 +1,1 @@
+import{i as e,n as t,r as n}from"./PageMeta-Ck7bVO-H.js";e();var r=n(),i=()=>(0,r.jsxs)(r.Fragment,{children:[(0,r.jsx)(t,{title:`Unloading and Sales Form | Admin`,description:``}),(0,r.jsx)(`div`,{children:`UnloadingAndSalesForm`})]});export{i as default};
