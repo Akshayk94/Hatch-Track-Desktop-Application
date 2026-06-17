@@ -18,7 +18,8 @@
       "backend/**/*"
     ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "frontend/images/icon.png"
     },
     "mac": {
       "target": "dmg"
@@ -28,5 +29,9 @@
       "frontend/**/*",
       "backend/**/*"
     ]
+  },
+  "devDependencies": {
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3"
   }
 }
