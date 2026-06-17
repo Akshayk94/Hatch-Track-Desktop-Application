@@ -5,7 +5,11 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win portable",
-    "dist:mac-arm": "electron-builder --mac dmg --arm64"
+    "dist:win": "electron-builder --win portable",
+    "dist:mac-arm": "electron-builder --mac dmg --arm64",
+    "dist:mac-intel": "electron-builder --mac dmg --x64",
+    "dist:mac-universal": "electron-builder --mac dmg --universal",
+    "dist:linux": "electron-builder --linux AppImage"
   },
   "build": {
     "appId": "com.hatcherymanagementsystem.app",
@@ -23,6 +27,9 @@
     },
     "mac": {
       "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
     },
     "files": [
       "main.js",

@@ -199,37 +199,51 @@ app.on("window-all-closed", () => {
 
 ---
 
-### Step 6: Process to Create `.exe` and `.dmg` Files
+### Step 6: Process to Create `.exe`, `.dmg`, and AppImage Files
 
-Because you are using an Apple Silicon macOS system, your machine is capable of compiling packaging configurations for both Windows and Mac from this single directory.
+You can compile packaging configurations for Windows, macOS, and Linux. Note that to successfully build the macOS `.dmg` installer, you must run the build command on a macOS machine.
 
-Open your `package.json` file inside the `hatch-track-desktop` folder and replace its entire contents with this configuration:
+Open your `package.json` file inside your Electron project root and ensure it includes the following scripts and configuration:
 
 ```json
 {
-  "name": "Hatchery Management System Version 1.0",
+  "name": "hatchery-management-system",
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win portable",
-    "dist:mac-arm": "electron-builder --mac dmg --arm64"
+    "dist:win": "electron-builder --win portable",
+    "dist:mac-arm": "electron-builder --mac dmg --arm64",
+    "dist:mac-intel": "electron-builder --mac dmg --x64",
+    "dist:mac-universal": "electron-builder --mac dmg --universal",
+    "dist:linux": "electron-builder --linux AppImage"
   },
   "build": {
-    "appId": "com.hatchtrack.app",
-    "productName": "HatchTrackAdmin",
+    "appId": "com.hatcherymanagementsystem.app",
+    "productName": "Hatchery Management System",
     "directories": {
       "output": "dist-desktop"
     },
     "asar": true,
-    "asarUnpack": ["backend/**/*"],
+    "asarUnpack": [
+      "backend/**/*"
+    ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "frontend/images/icon.png"
     },
     "mac": {
       "target": "dmg"
     },
-    "files": ["main.js", "frontend/**/*", "backend/**/*"]
+    "linux": {
+      "target": "AppImage"
+    },
+    "files": [
+      "main.js",
+      "frontend/**/*",
+      "backend/**/*"
+    ]
   }
 }
 ```
@@ -237,27 +251,43 @@ Open your `package.json` file inside the `hatch-track-desktop` folder and replac
 #### Run the Build Commands
 
 ##### A. To Generate the Portable Windows Execution File (`.exe`)
-
-Run this command in your terminal:
-
+Run this command in your terminal (can be run on Windows or macOS):
 ```bash
-npm run dist
+npm run dist:win
 ```
+* **Result**: Combines assets and builds a portable single-binary execution container inside a newly generated `dist-desktop/` folder.
+* **Output File**: `dist-desktop/Hatchery Management System 1.0.0.exe`
+* **Usage**: This file runs instantly on a client's Windows computer without running an installation wizard.
 
-- **Result**: Combines your assets and builds a portable single-binary execution container inside a newly generated `dist-desktop/` folder.
-- **Output File**: `dist-desktop/HatchTrackAdmin.exe`
-- **Usage**: This file runs instantly on a client's Windows computer without running an installation setup wizard.
+##### B. To Generate macOS Installer Files (`.dmg`)
+> [!IMPORTANT]
+> **Host Requirement:** These commands must be run on a macOS machine.
 
-##### B. To Generate the Native Apple Silicon macOS Runtime File (`.dmg`)
+* **For Apple Silicon Macs (M1/M2/M3/M4):**
+  ```bash
+  npm run dist:mac-arm
+  ```
+  * **Output File**: `dist-desktop/Hatchery Management System-1.0.0-arm64.dmg`
 
+* **For Intel-based Macs:**
+  ```bash
+  npm run dist:mac-intel
+  ```
+  * **Output File**: `dist-desktop/Hatchery Management System-1.0.0.dmg`
+
+* **Universal (Works on both architectures):**
+  ```bash
+  npm run dist:mac-universal
+  ```
+  * **Output File**: `dist-desktop/Hatchery Management System-1.0.0-universal.dmg`
+
+##### C. To Generate the Linux AppImage File
 Run this command in your terminal:
-
 ```bash
-npm run dist:mac-arm
+npm run dist:linux
 ```
-
-- **Result**: Compiles your workspace into a native macOS Disk Image installer optimized for M1, M2, M3, or M4 chips.
-- **Output File**: `dist-desktop/HatchTrackAdmin-1.0.0.dmg`
+* **Result**: Builds a universal self-contained AppImage executable package for Linux distributions.
+* **Output File**: `dist-desktop/Hatchery Management System-1.0.0.AppImage`
 
 ---
 
