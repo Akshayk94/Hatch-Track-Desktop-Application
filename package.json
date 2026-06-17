@@ -8,8 +8,8 @@
     "dist:mac-arm": "electron-builder --mac dmg --arm64"
   },
   "build": {
-    "appId": "com.hatchtrack.app",
-    "productName": "HatchTrackAdmin",
+    "appId": "com.hatcherymanagementsystem.app",
+    "productName": "Hatchery Management System",
     "directories": {
       "output": "dist-desktop"
     },

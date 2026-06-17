@@ -1,0 +1,1 @@
+import{j as e,P as i}from"./index-B_z8IWiX.js";const o=()=>e.jsxs(e.Fragment,{children:[e.jsx(i,{title:"Vehicle Loading Form | Admin",description:""}),e.jsx("div",{children:"VehicleLoadingForm"})]});export{o as default};
