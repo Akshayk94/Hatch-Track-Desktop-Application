@@ -35,7 +35,23 @@
       "include": "build/installer.nsh"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "frontend/images/icon.png"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file"
+        }
+      ]
     },
     "linux": {
       "target": "AppImage"

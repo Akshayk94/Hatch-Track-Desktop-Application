@@ -200,7 +200,5 @@ app.on("window-all-closed", () => {
   if (backendProcess) {
     backendProcess.kill();
   }
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  app.quit();
 });
