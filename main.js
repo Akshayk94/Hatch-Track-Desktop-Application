@@ -1,10 +1,13 @@
-const { app, BrowserWindow, protocol, net, Menu, shell } = require('electron');
-const path = require('path');
-const { pathToFileURL } = require('url');
+const { app, BrowserWindow, protocol, net, Menu, shell } = require("electron");
+const path = require("path");
+const { pathToFileURL } = require("url");
 
 // Register custom protocol 'app' as standard and secure
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+  {
+    scheme: "app",
+    privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
 ]);
 
 let mainWindow;
@@ -14,129 +17,129 @@ let logFilePath;
 
 function startBackend() {
   const isPackaged = app.isPackaged;
-  
+
   // Routes to the unpacked directory if running from a built application package
   const jarPath = isPackaged
-    ? path.join(__dirname, '..', 'app.asar.unpacked', 'backend', 'backend.jar')
-    : path.join(__dirname, 'backend', 'backend.jar');
+    ? path.join(__dirname, "..", "app.asar.unpacked", "backend", "backend.jar")
+    : path.join(__dirname, "backend", "backend.jar");
 
   console.log("Launching backend from: ", jarPath);
 
-  const fs = require('fs');
-  logFilePath = path.join(app.getPath('userData'), 'backend.log');
-  logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+  const fs = require("fs");
+  logFilePath = path.join(app.getPath("userData"), "backend.log");
+  logStream = fs.createWriteStream(logFilePath, { flags: "a" });
 
-  logStream.write(`\n--- Backend Log Started: ${new Date().toISOString()} ---\n`);
+  logStream.write(
+    `\n--- Backend Log Started: ${new Date().toISOString()} ---\n`,
+  );
   logStream.write(`Launching backend from: ${jarPath}\n`);
 
-  const { spawn } = require('child_process');
-  backendProcess = spawn('java', ['-jar', jarPath]);
+  const { spawn } = require("child_process");
+  backendProcess = spawn("java", ["-jar", jarPath]);
 
   backendProcess.stdout.pipe(logStream);
   backendProcess.stderr.pipe(logStream);
 
-  backendProcess.on('error', (err) => {
+  backendProcess.on("error", (err) => {
     console.error(`Backend failed to start: ${err}`);
     logStream.write(`Backend failed to start: ${err}\n`);
   });
 
-  backendProcess.on('exit', (code, signal) => {
-    logStream.write(`Backend process exited with code ${code} and signal ${signal}\n`);
+  backendProcess.on("exit", (code, signal) => {
+    logStream.write(
+      `Backend process exited with code ${code} and signal ${signal}\n`,
+    );
   });
 }
 
 function createMenu() {
   const template = [
     {
-      label: 'Edit',
+      label: "Edit",
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
-      ]
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
     },
     {
-      label: 'View',
+      label: "View",
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
     },
     {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        { role: 'close' }
-      ]
+      label: "Window",
+      submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "close" }],
     },
     {
-      label: 'Logs',
+      label: "Logs",
       submenu: [
         {
-          label: 'View Backend Logs',
+          label: "View Backend Logs",
           click: () => {
             if (logFilePath) {
               shell.openPath(logFilePath).catch((err) => {
                 console.error("Failed to open logs:", err);
               });
             }
-          }
+          },
         },
         {
-          label: 'Open Logs Folder',
+          label: "Open Logs Folder",
           click: () => {
-            shell.openPath(app.getPath('userData')).catch((err) => {
+            shell.openPath(app.getPath("userData")).catch((err) => {
               console.error("Failed to open logs directory:", err);
             });
-          }
-        }
-      ]
+          },
+        },
+      ],
     },
     {
-      role: 'help',
+      role: "help",
       submenu: [
         {
-          label: 'About Hatch-Track',
+          label: "About App",
           click: () => {
-            const { dialog } = require('electron');
+            const { dialog } = require("electron");
             dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'About Hatch-Track',
-              message: 'Hatchery Management System',
-              detail: `Version: ${app.getVersion()}\nPowered by Electron & Spring Boot.`
+              type: "info",
+              title: "About App",
+              message: "Hatchery Management System",
+              detail: `Version: ${app.getVersion()}\nPowered by Electron JS.`,
             });
-          }
-        }
-      ]
-    }
+          },
+        },
+      ],
+    },
   ];
 
-  if (process.platform === 'darwin') {
+  if (process.platform === "darwin") {
     template.unshift({
       label: app.name,
       submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
+        { role: "about" },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
     });
   }
 
@@ -150,20 +153,20 @@ function createWindow() {
     width: 1200,
     height: 800,
     title: `Hatchery Management System Version ${app.getVersion()}`,
-    icon: path.join(__dirname, 'frontend', 'images', 'icon.png'),
+    icon: path.join(__dirname, "frontend", "images", "icon.png"),
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
-    }
+      contextIsolation: true,
+    },
   });
 
   // Loads your React frontend application static index.html via the app protocol
-  mainWindow.loadURL('app:///index.html');
+  mainWindow.loadURL("app:///index.html");
 
   // Open DevTools automatically during troubleshooting (Optional)
   // mainWindow.webContents.openDevTools();
 
-  mainWindow.on('closed', () => {
+  mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
@@ -171,29 +174,33 @@ function createWindow() {
 // Start backend and initialize window
 app.whenReady().then(() => {
   // Handle custom protocol 'app' to resolve relative/absolute static paths correctly
-  protocol.handle('app', (request) => {
+  protocol.handle("app", (request) => {
     const url = new URL(request.url);
     let pathname = url.pathname;
-    if (pathname === '/' || pathname === '') {
-      pathname = '/index.html';
+    if (pathname === "/" || pathname === "") {
+      pathname = "/index.html";
     }
-    const relativePath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
-    const filePath = path.join(__dirname, 'frontend', relativePath);
-    return net.fetch(pathToFileURL(filePath).toString(), { bypassCustomProtocolHandlers: true });
+    const relativePath = pathname.startsWith("/")
+      ? pathname.slice(1)
+      : pathname;
+    const filePath = path.join(__dirname, "frontend", relativePath);
+    return net.fetch(pathToFileURL(filePath).toString(), {
+      bypassCustomProtocolHandlers: true,
+    });
   });
 
   startBackend();
-  
+
   // Give the Spring Boot app 4 seconds to warm up before opening the UI window
-  setTimeout(createWindow, 4000); 
+  setTimeout(createWindow, 4000);
 });
 
 // Gracefully clean up child processes on app exit
-app.on('window-all-closed', () => {
+app.on("window-all-closed", () => {
   if (backendProcess) {
-    backendProcess.kill(); 
+    backendProcess.kill();
   }
-  if (process.platform !== 'darwin') {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
