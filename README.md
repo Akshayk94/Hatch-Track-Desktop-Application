@@ -185,13 +185,12 @@ npm run dist:win
 
 ### Step 5: Understanding How `main.js` Works
 
-Create a file named [main.js](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/main.js) in the root of your `hatch-track-desktop` folder and paste the following code:
+Create a file named [main.js](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/main.js) in the root of your project folder and paste the following code:
 
 ```javascript
-const { app, BrowserWindow, protocol, net } = require('electron');
+const { app, BrowserWindow, protocol, net, Menu, shell } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const exec = require('child_process').exec;
 
 // Register custom protocol 'app' as standard and secure
 protocol.registerSchemesAsPrivileged([
@@ -200,6 +199,8 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow;
 let backendProcess;
+let logStream;
+let logFilePath;
 
 function startBackend() {
   const isPackaged = app.isPackaged;
@@ -211,19 +212,134 @@ function startBackend() {
 
   console.log("Launching backend from: ", jarPath);
 
-  backendProcess = exec(`java -jar "${jarPath}"`, (err, stdout, stderr) => {
-    if (err) {
-      console.error(`Backend failed to start: ${err}`);
-      return;
-    }
+  const fs = require('fs');
+  logFilePath = path.join(app.getPath('userData'), 'backend.log');
+  logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+  logStream.write(`\n--- Backend Log Started: ${new Date().toISOString()} ---\n`);
+  logStream.write(`Launching backend from: ${jarPath}\n`);
+
+  const { spawn } = require('child_process');
+  backendProcess = spawn('java', ['-jar', jarPath]);
+
+  backendProcess.stdout.pipe(logStream);
+  backendProcess.stderr.pipe(logStream);
+
+  backendProcess.on('error', (err) => {
+    console.error(`Backend failed to start: ${err}`);
+    logStream.write(`Backend failed to start: ${err}\n`);
+  });
+
+  backendProcess.on('exit', (code, signal) => {
+    logStream.write(`Backend process exited with code ${code} and signal ${signal}\n`);
   });
 }
 
+function createMenu() {
+  const template = [
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' }
+      ]
+    },
+    {
+      label: 'Logs',
+      submenu: [
+        {
+          label: 'View Backend Logs',
+          click: () => {
+            if (logFilePath) {
+              shell.openPath(logFilePath).catch((err) => {
+                console.error("Failed to open logs:", err);
+              });
+            }
+          }
+        },
+        {
+          label: 'Open Logs Folder',
+          click: () => {
+            shell.openPath(app.getPath('userData')).catch((err) => {
+              console.error("Failed to open logs directory:", err);
+            });
+          }
+        }
+      ]
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'About Hatch-Track',
+          click: () => {
+            const { dialog } = require('electron');
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'About Hatch-Track',
+              message: 'Hatchery Management System',
+              detail: `Version: ${app.getVersion()}\nPowered by Electron & Spring Boot.`
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  if (process.platform === 'darwin') {
+    template.unshift({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    });
+  }
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 function createWindow() {
+  createMenu();
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: "Hatchery Management System Version 1.0",
+    title: `Hatchery Management System Version ${app.getVersion()}`,
     icon: path.join(__dirname, 'frontend', 'images', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
@@ -273,7 +389,8 @@ app.on('window-all-closed', () => {
 #### Explanation of the Mechanics
 
 - **ASAR Unpacking**: Production Electron apps compress files into an internal `app.asar` file. Because the native computer Java runtime cannot execute a `.jar` file trapped inside a compressed Electron archive, `main.js` uses conditional path logic to look inside the uncompressed folder (`app.asar.unpacked`) created during the build phase.
-- **Background Process Spawning**: Node's native `child_process.exec` executes the command `java -jar "backend.jar"` silently in the background. This allows your Spring Boot app to boot without opening a separate terminal window on the user's screen.
+- **Log Streaming & Spawning**: We use `child_process.spawn` to start the Spring Boot process as a background stream instead of buffering it. The process outputs (`stdout` and `stderr`) are piped directly into a write stream connected to `backend.log` within the user's standard application data directory (`app.getPath('userData')`).
+- **Interactive Upper Menu**: Custom application menus are initialized and rendered through `Menu.buildFromTemplate()`. Under the **Logs** tab, users can click **View Backend Logs** or **Open Logs Folder** to open the log output files immediately using their operating system's default text editor (e.g. Notepad).
 - **Custom `app://` Protocol Handling**: Standard web pages loaded via standard file routing can run into origin policy, CORS restrictions, or broken absolute paths. Registering and handling a custom `app` protocol maps `app:///` requests securely and dynamically to local assets inside the `frontend` folder, avoiding blank screens and routing errors.
 - **Startup Delay Buffer**: Since Spring Boot takes a few seconds to fully initialize and open port 8080, a 4000ms (4 seconds) timeout loop delays `createWindow()`. This prevents the React UI from trying to fetch data from a backend that isn't fully awake yet.
 - **Process Termination Safety**: If you close an Electron app without killing its child processes, the Spring Boot Java server will remain active in your computer's background processes (creating a "Zombie Process"). When the window closes, `backendProcess.kill()` kills the background Java app to free up system memory and local ports.

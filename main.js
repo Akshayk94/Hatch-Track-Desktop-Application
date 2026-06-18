@@ -1,7 +1,6 @@
-const { app, BrowserWindow, protocol, net } = require('electron');
+const { app, BrowserWindow, protocol, net, Menu, shell } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const exec = require('child_process').exec;
 
 // Register custom protocol 'app' as standard and secure
 protocol.registerSchemesAsPrivileged([
@@ -10,6 +9,8 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow;
 let backendProcess;
+let logStream;
+let logFilePath;
 
 function startBackend() {
   const isPackaged = app.isPackaged;
@@ -21,15 +22,130 @@ function startBackend() {
 
   console.log("Launching backend from: ", jarPath);
 
-  backendProcess = exec(`java -jar "${jarPath}"`, (err, stdout, stderr) => {
-    if (err) {
-      console.error(`Backend failed to start: ${err}`);
-      return;
-    }
+  const fs = require('fs');
+  logFilePath = path.join(app.getPath('userData'), 'backend.log');
+  logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+  logStream.write(`\n--- Backend Log Started: ${new Date().toISOString()} ---\n`);
+  logStream.write(`Launching backend from: ${jarPath}\n`);
+
+  const { spawn } = require('child_process');
+  backendProcess = spawn('java', ['-jar', jarPath]);
+
+  backendProcess.stdout.pipe(logStream);
+  backendProcess.stderr.pipe(logStream);
+
+  backendProcess.on('error', (err) => {
+    console.error(`Backend failed to start: ${err}`);
+    logStream.write(`Backend failed to start: ${err}\n`);
+  });
+
+  backendProcess.on('exit', (code, signal) => {
+    logStream.write(`Backend process exited with code ${code} and signal ${signal}\n`);
   });
 }
 
+function createMenu() {
+  const template = [
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' }
+      ]
+    },
+    {
+      label: 'Logs',
+      submenu: [
+        {
+          label: 'View Backend Logs',
+          click: () => {
+            if (logFilePath) {
+              shell.openPath(logFilePath).catch((err) => {
+                console.error("Failed to open logs:", err);
+              });
+            }
+          }
+        },
+        {
+          label: 'Open Logs Folder',
+          click: () => {
+            shell.openPath(app.getPath('userData')).catch((err) => {
+              console.error("Failed to open logs directory:", err);
+            });
+          }
+        }
+      ]
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'About Hatch-Track',
+          click: () => {
+            const { dialog } = require('electron');
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'About Hatch-Track',
+              message: 'Hatchery Management System',
+              detail: `Version: ${app.getVersion()}\nPowered by Electron & Spring Boot.`
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  if (process.platform === 'darwin') {
+    template.unshift({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    });
+  }
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 function createWindow() {
+  createMenu();
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
