@@ -152,7 +152,7 @@ Copy-Item -Path "C:\projects\hatch-track-backend\target\hatch-track-backend-0.0.
 Remove-Item -Path "C:\projects\electron-js-desktop-app\frontend\*" -Recurse -ErrorAction SilentlyContinue
 Copy-Item -Path "C:\projects\hatch-track-frontend\dist\*" -Destination "C:\projects\electron-js-desktop-app\frontend\" -Recurse -Force
 
-# 6. Build the portable Windows executable (.exe)
+# 6. Build the Windows Setup Installer (.exe)
 npm run dist:win
 ```
 
@@ -177,7 +177,7 @@ copy /y "C:\projects\hatch-track-backend\target\hatch-track-backend-0.0.1-SNAPSH
 :: 5. Copy frontend build files
 xcopy /y /e /i "C:\projects\hatch-track-frontend\dist\*.*" "C:\projects\electron-js-desktop-app\frontend\"
 
-:: 6. Build the portable Windows executable (.exe)
+:: 6. Build the Windows Setup Installer (.exe)
 npm run dist:win
 ```
 
@@ -410,8 +410,8 @@ Open your `package.json` file inside your Electron project root and ensure it in
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable",
-    "dist:win": "electron-builder --win portable",
+    "dist": "electron-builder --win nsis",
+    "dist:win": "electron-builder --win nsis",
     "dist:mac-arm": "electron-builder --mac dmg --arm64",
     "dist:mac-intel": "electron-builder --mac dmg --x64",
     "dist:mac-universal": "electron-builder --mac dmg --universal",
@@ -428,8 +428,17 @@ Open your `package.json` file inside your Electron project root and ensure it in
       "backend/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": "nsis",
       "icon": "frontend/images/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hatchery Management System",
+      "deleteAppDataOnUninstall": true,
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": "dmg"
@@ -448,14 +457,14 @@ Open your `package.json` file inside your Electron project root and ensure it in
 
 #### Run the Build Commands
 
-##### A. To Generate the Portable Windows Execution File (`.exe`)
+##### A. To Generate the Windows Setup Installer (`.exe`)
 Run this command in your terminal (can be run on Windows or macOS):
 ```bash
 npm run dist:win
 ```
-* **Result**: Combines assets and builds a portable single-binary execution container inside a newly generated `dist-desktop/` folder.
-* **Output File**: `dist-desktop/Hatchery Management System 1.0.0.exe`
-* **Usage**: This file runs instantly on a client's Windows computer without running an installation wizard.
+* **Result**: Combines assets and builds a Windows Setup Wizard Installer (.exe) inside a newly generated `dist-desktop/` folder.
+* **Output File**: `dist-desktop/Hatchery Management System Setup 1.0.0.exe`
+* **Usage**: This file runs a standard installation wizard that guides the user to select the installation path, shows progress, and creates standard desktop and start menu shortcuts.
 
 ##### B. To Generate macOS Installer Files (`.dmg`)
 > [!IMPORTANT]

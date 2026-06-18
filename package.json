@@ -4,8 +4,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable",
-    "dist:win": "electron-builder --win portable",
+    "dist": "electron-builder --win nsis",
+    "dist:win": "electron-builder --win nsis",
     "dist:mac-arm": "electron-builder --mac dmg --arm64",
     "dist:mac-intel": "electron-builder --mac dmg --x64",
     "dist:mac-universal": "electron-builder --mac dmg --universal",
@@ -22,8 +22,17 @@
       "backend/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": "nsis",
       "icon": "frontend/images/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hatchery Management System",
+      "deleteAppDataOnUninstall": true,
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": "dmg"
