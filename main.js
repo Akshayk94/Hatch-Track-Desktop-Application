@@ -98,11 +98,16 @@ function startBackend() {
     console.error(`Backend failed to start: ${err}`);
     logStream.write(`Backend failed to start: ${err}\n`);
 
-    // Show visual native dialog box error if backend failed to start
     const { dialog } = require("electron");
     dialog.showErrorBox(
-      "Hatch-Track Backend Failure",
-      `Failed to launch the backend server.\n\nJava executable used: ${javaPath}\nError details: ${err.message}\n\nPlease verify that Java 17+ is installed and configured on your system.`
+      "Java Runtime Environment Missing",
+      `Failed to launch the backend server.\n\n` +
+      `Executable attempted: "${javaPath}"\n` +
+      `Error details: ${err.message}\n\n` +
+      `Requirements:\n` +
+      `- Hatch-Track requires Java 17 or higher to be installed and available in the system PATH.\n\n` +
+      `Log File location:\n` +
+      `"${logFilePath}"`
     );
   });
 
@@ -114,7 +119,16 @@ function startBackend() {
       const { dialog } = require("electron");
       dialog.showErrorBox(
         "Backend Server Terminated",
-        `The backend process exited unexpectedly with code ${code}.\n\nThis typically happens if port 8080 is already in use by another application (like a zombie process from a previous run or another server), or if the database is unreachable.\n\nPlease free up port 8080 or check the logs, and restart Hatch-Track.`
+        `The backend server exited unexpectedly with code ${code}.\n\n` +
+        `Possible causes:\n` +
+        `1. Port 8080 is already in use by another program (e.g. docker, local dev server, or a zombie Java process).\n` +
+        `2. The database server is unreachable or offline.\n` +
+        `3. An incompatible Java version is installed (Java 17+ is required).\n\n` +
+        `Please inspect the detailed logs at:\n` +
+        `"${logFilePath}"\n\n` +
+        `Troubleshooting:\n` +
+        `- Free up port 8080 and restart the application.\n` +
+        `- Verify database connectivity.`
       );
     }
   });
