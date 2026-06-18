@@ -28,7 +28,7 @@ The application follows the **Semantic Versioning (SemVer)** standard: `MAJOR.MI
 
 ## 2. Where to Update the Version in the Codebase
 
-When releasing a new version, you must update the version identifier in the following main files:
+When releasing a new version, you only need to update the version in the package files. The main file dynamically loads the version.
 
 ### A. [package.json](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/package.json)
 Update the `"version"` property near the top of the file:
@@ -41,17 +41,11 @@ Update the `"version"` property near the top of the file:
 ```
 
 ### B. [main.js](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/main.js#L36-L37)
-Update the hardcoded title in the window creation process:
+The window title dynamically extracts the version from `package.json` using Electron's native API:
 ```javascript
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    title: "Hatchery Management System Version 1.0", // <--- Update the version display string here
-    ...
-  });
-}
+title: `Hatchery Management System Version ${app.getVersion()}`
 ```
+No manual update is needed here!
 
 ### C. [package-lock.json](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/package-lock.json)
 This file tracks npm dependencies and the root project version. It is **highly recommended** to let `npm` handle this automatically rather than modifying it manually.
@@ -76,7 +70,7 @@ npm version major
 ```
 
 > [!NOTE]
-> After running the automation command, you still need to manually update the title string in [main.js](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/main.js#L36-L37) and document your release notes in the section below.
+> Running the automation commands above is all you need to sync versions in the code. Once updated, document the new version release notes in the section below.
 
 ---
 

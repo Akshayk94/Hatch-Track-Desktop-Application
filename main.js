@@ -33,7 +33,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: "Hatchery Management System Version 1.0",
+    title: `Hatchery Management System Version ${app.getVersion()}`,
     icon: path.join(__dirname, 'frontend', 'images', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
