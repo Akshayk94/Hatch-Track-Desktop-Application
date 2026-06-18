@@ -10,10 +10,11 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-let mainWindow;
+let mainWindow = null;
 let backendProcess;
 let logStream;
 let logFilePath;
+let isQuitting = false;
 
 function getJavaExecutablePath() {
   if (process.platform !== "darwin") {
@@ -109,6 +110,13 @@ function startBackend() {
     logStream.write(
       `Backend process exited with code ${code} and signal ${signal}\n`,
     );
+    if (code !== 0 && code !== null && !isQuitting) {
+      const { dialog } = require("electron");
+      dialog.showErrorBox(
+        "Backend Server Terminated",
+        `The backend process exited unexpectedly with code ${code}.\n\nThis typically happens if port 8080 is already in use by another application (like a zombie process from a previous run or another server), or if the database is unreachable.\n\nPlease free up port 8080 or check the logs, and restart Hatch-Track.`
+      );
+    }
   });
 }
 
@@ -258,6 +266,7 @@ app.whenReady().then(() => {
 
 // Gracefully clean up child processes on app exit
 app.on("window-all-closed", () => {
+  isQuitting = true;
   if (backendProcess) {
     backendProcess.kill();
   }
