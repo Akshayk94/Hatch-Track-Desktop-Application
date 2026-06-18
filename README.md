@@ -96,14 +96,14 @@ You need to create a completely separate project directory that will act as the 
 
 ### Step 4: Add Frontend and Backend Files into the Electron Project
 
-1. Inside your newly created `hatch-track-desktop` folder, create two empty subfolders named `frontend` and `backend`:
+1. Inside your newly created `hatch-track-desktop` (or the Electron wrapper project directory), create two empty subfolders named `frontend` and `backend`:
    ```bash
    mkdir frontend
    mkdir backend
    ```
 2. Move your compiled files into these folders:
-   - Copy the `backend.jar` file you generated in **Step 1** and paste it directly inside the `backend/` folder.
-   - Copy the **entire contents** of the React `dist/` folder generated in **Step 2** and paste them directly inside the `frontend/` folder.
+   - Copy the `backend.jar` file you generated in **Step 1** and paste it directly inside the [backend/](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/backend) folder.
+   - Copy the **entire contents** of the React `dist/` folder generated in **Step 2** and paste them directly inside the [frontend/](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/frontend) folder.
 
 #### Final Folder Structure
 
@@ -121,31 +121,96 @@ hatch-track-desktop/
     └── ...
 ```
 
+#### Complete End-to-End Build and Setup Example (Windows)
+
+To help visualize how the files flow, let's look at a concrete example. Assume you have three project folders on your machine:
+* **Spring Boot Backend Repo**: `C:\projects\hatch-track-backend`
+* **React Frontend Repo**: `C:\projects\hatch-track-frontend`
+* **Electron Wrapper Repo**: `C:\projects\electron-js-desktop-app` (Your current workspace)
+
+Here are the automated commands you can run to compile, copy, and bundle everything into an executable `.exe` file.
+
+##### Option A: Using Windows PowerShell (Recommended)
+```powershell
+# 1. Compile the Spring Boot backend
+cd "C:\projects\hatch-track-backend"
+mvn clean package
+
+# 2. Build the React frontend
+cd "C:\projects\hatch-track-frontend"
+npm run build
+
+# 3. Navigate to the Electron project and prepare directories
+cd "C:\projects\electron-js-desktop-app"
+mkdir -Force backend
+mkdir -Force frontend
+
+# 4. Copy backend JAR file into backend/ and rename it to backend.jar
+Copy-Item -Path "C:\projects\hatch-track-backend\target\hatch-track-backend-0.0.1-SNAPSHOT.jar" -Destination "C:\projects\electron-js-desktop-app\backend\backend.jar" -Force
+
+# 5. Clean up old frontend folder in Electron (if any) and copy the new production dist contents
+Remove-Item -Path "C:\projects\electron-js-desktop-app\frontend\*" -Recurse -ErrorAction SilentlyContinue
+Copy-Item -Path "C:\projects\hatch-track-frontend\dist\*" -Destination "C:\projects\electron-js-desktop-app\frontend\" -Recurse -Force
+
+# 6. Build the portable Windows executable (.exe)
+npm run dist:win
+```
+
+##### Option B: Using Windows Command Prompt (CMD)
+```cmd
+:: 1. Compile the Spring Boot backend
+cd /d C:\projects\hatch-track-backend
+call mvn clean package
+
+:: 2. Build the React frontend
+cd /d C:\projects\hatch-track-frontend
+call npm run build
+
+:: 3. Navigate to the Electron project and prepare directories
+cd /d C:\projects\electron-js-desktop-app
+if not exist backend mkdir backend
+if not exist frontend mkdir frontend
+
+:: 4. Copy backend JAR file and rename it
+copy /y "C:\projects\hatch-track-backend\target\hatch-track-backend-0.0.1-SNAPSHOT.jar" "C:\projects\electron-js-desktop-app\backend\backend.jar"
+
+:: 5. Copy frontend build files
+xcopy /y /e /i "C:\projects\hatch-track-frontend\dist\*.*" "C:\projects\electron-js-desktop-app\frontend\"
+
+:: 6. Build the portable Windows executable (.exe)
+npm run dist:win
+```
+
 ---
 
 ### Step 5: Understanding How `main.js` Works
 
-Create a file named `main.js` in the root of your `hatch-track-desktop` folder and paste the following code:
+Create a file named [main.js](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/main.js) in the root of your `hatch-track-desktop` folder and paste the following code:
 
 ```javascript
-const { app, BrowserWindow } = require("electron");
-const path = require("path");
-const exec = require("child_process").exec;
+const { app, BrowserWindow, protocol, net } = require('electron');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const exec = require('child_process').exec;
+
+// Register custom protocol 'app' as standard and secure
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+]);
 
 let mainWindow;
 let backendProcess;
 
 function startBackend() {
   const isPackaged = app.isPackaged;
-
-  // Routes to the unpacked directory if running from a built production package
+  
+  // Routes to the unpacked directory if running from a built application package
   const jarPath = isPackaged
-    ? path.join(__dirname, "..", "app.asar.unpacked", "backend", "backend.jar")
-    : path.join(__dirname, "backend", "backend.jar");
+    ? path.join(__dirname, '..', 'app.asar.unpacked', 'backend', 'backend.jar')
+    : path.join(__dirname, 'backend', 'backend.jar');
 
   console.log("Launching backend from: ", jarPath);
 
-  // Spawns the Java jar as a background process natively
   backendProcess = exec(`java -jar "${jarPath}"`, (err, stdout, stderr) => {
     if (err) {
       console.error(`Backend failed to start: ${err}`);
@@ -158,33 +223,48 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: "Hatchery Management System Version 1.0",
+    icon: path.join(__dirname, 'frontend', 'images', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true,
-    },
+      contextIsolation: true
+    }
   });
 
-  // Loads your React frontend application static index.html file
-  mainWindow.loadFile(path.join(__dirname, "frontend", "index.html"));
+  // Loads your React frontend application static index.html via the app protocol
+  mainWindow.loadURL('app:///index.html');
 
-  mainWindow.on("closed", () => {
+  mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
-// Execution triggers here when Electron initializes
+// Start backend and initialize window
 app.whenReady().then(() => {
+  // Handle custom protocol 'app' to resolve relative/absolute static paths correctly
+  protocol.handle('app', (request) => {
+    const url = new URL(request.url);
+    let pathname = url.pathname;
+    if (pathname === '/' || pathname === '') {
+      pathname = '/index.html';
+    }
+    const relativePath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+    const filePath = path.join(__dirname, 'frontend', relativePath);
+    return net.fetch(pathToFileURL(filePath).toString(), { bypassCustomProtocolHandlers: true });
+  });
+
   startBackend();
-  // Gives the Spring Boot app 4 seconds to warm up before opening the UI window
-  setTimeout(createWindow, 4000);
+  
+  // Give the Spring Boot app 4 seconds to warm up before opening the UI window
+  setTimeout(createWindow, 4000); 
 });
 
 // Gracefully clean up child processes on app exit
-app.on("window-all-closed", () => {
+app.on('window-all-closed', () => {
   if (backendProcess) {
-    backendProcess.kill(); // Kills the background java process safely
+    backendProcess.kill(); 
   }
-  if (process.platform !== "darwin") {
+  if (process.platform !== 'darwin') {
     app.quit();
   }
 });
@@ -194,6 +274,7 @@ app.on("window-all-closed", () => {
 
 - **ASAR Unpacking**: Production Electron apps compress files into an internal `app.asar` file. Because the native computer Java runtime cannot execute a `.jar` file trapped inside a compressed Electron archive, `main.js` uses conditional path logic to look inside the uncompressed folder (`app.asar.unpacked`) created during the build phase.
 - **Background Process Spawning**: Node's native `child_process.exec` executes the command `java -jar "backend.jar"` silently in the background. This allows your Spring Boot app to boot without opening a separate terminal window on the user's screen.
+- **Custom `app://` Protocol Handling**: Standard web pages loaded via standard file routing can run into origin policy, CORS restrictions, or broken absolute paths. Registering and handling a custom `app` protocol maps `app:///` requests securely and dynamically to local assets inside the `frontend` folder, avoiding blank screens and routing errors.
 - **Startup Delay Buffer**: Since Spring Boot takes a few seconds to fully initialize and open port 8080, a 4000ms (4 seconds) timeout loop delays `createWindow()`. This prevents the React UI from trying to fetch data from a backend that isn't fully awake yet.
 - **Process Termination Safety**: If you close an Electron app without killing its child processes, the Spring Boot Java server will remain active in your computer's background processes (creating a "Zombie Process"). When the window closes, `backendProcess.kill()` kills the background Java app to free up system memory and local ports.
 
