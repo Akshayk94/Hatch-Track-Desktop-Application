@@ -15,6 +15,57 @@ let backendProcess;
 let logStream;
 let logFilePath;
 
+function getJavaExecutablePath() {
+  if (process.platform !== "darwin") {
+    return "java";
+  }
+
+  const { execSync } = require("child_process");
+  const fs = require("fs");
+
+  // Add common macOS paths to process.env.PATH so spawn can find java if installed via Homebrew or standard installers
+  const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
+  
+  // Try to get java_home dynamically
+  try {
+    const javaHome = execSync("/usr/libexec/java_home", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (javaHome) {
+      const javaHomeBin = path.join(javaHome, "bin");
+      extraPaths.unshift(javaHomeBin);
+      const javaPath = path.join(javaHomeBin, "java");
+      if (fs.existsSync(javaPath)) {
+        console.log("Found Java via java_home:", javaPath);
+        return javaPath;
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to find java via /usr/libexec/java_home:", err.message);
+  }
+
+  // Update process.env.PATH to include common directories
+  const currentPath = process.env.PATH || "";
+  const newPaths = extraPaths.filter(p => !currentPath.includes(p));
+  if (newPaths.length > 0) {
+    process.env.PATH = `${newPaths.join(":")}:${currentPath}`;
+  }
+
+  // Check common paths directly
+  const commonPaths = [
+    "/opt/homebrew/bin/java",
+    "/usr/local/bin/java",
+    "/usr/bin/java"
+  ];
+
+  for (const javaPath of commonPaths) {
+    if (fs.existsSync(javaPath)) {
+      console.log("Found Java at common path:", javaPath);
+      return javaPath;
+    }
+  }
+
+  return "java";
+}
+
 function startBackend() {
   const isPackaged = app.isPackaged;
 
@@ -23,7 +74,8 @@ function startBackend() {
     ? path.join(__dirname, "..", "app.asar.unpacked", "backend", "backend.jar")
     : path.join(__dirname, "backend", "backend.jar");
 
-  console.log("Launching backend from: ", jarPath);
+  const javaPath = getJavaExecutablePath();
+  console.log("Launching backend using:", javaPath, "from jar:", jarPath);
 
   const fs = require("fs");
   logFilePath = path.join(app.getPath("userData"), "backend.log");
@@ -32,10 +84,11 @@ function startBackend() {
   logStream.write(
     `\n--- Backend Log Started: ${new Date().toISOString()} ---\n`,
   );
-  logStream.write(`Launching backend from: ${jarPath}\n`);
+  logStream.write(`Launching backend with Java command: ${javaPath}\n`);
+  logStream.write(`JAR Path: ${jarPath}\n`);
 
   const { spawn } = require("child_process");
-  backendProcess = spawn("java", ["-jar", jarPath]);
+  backendProcess = spawn(javaPath, ["-jar", jarPath]);
 
   backendProcess.stdout.pipe(logStream);
   backendProcess.stderr.pipe(logStream);
@@ -43,6 +96,13 @@ function startBackend() {
   backendProcess.on("error", (err) => {
     console.error(`Backend failed to start: ${err}`);
     logStream.write(`Backend failed to start: ${err}\n`);
+
+    // Show visual native dialog box error if backend failed to start
+    const { dialog } = require("electron");
+    dialog.showErrorBox(
+      "Hatch-Track Backend Failure",
+      `Failed to launch the backend server.\n\nJava executable used: ${javaPath}\nError details: ${err.message}\n\nPlease verify that Java 17+ is installed and configured on your system.`
+    );
   });
 
   backendProcess.on("exit", (code, signal) => {
@@ -51,6 +111,7 @@ function startBackend() {
     );
   });
 }
+
 
 function createMenu() {
   const template = [
