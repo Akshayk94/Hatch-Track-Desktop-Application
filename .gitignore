@@ -3,6 +3,7 @@ dist-desktop/
 dist/
 build/
 backend/backend.jar
+frontend/
 *.dmg
 *.blockmap
 .env

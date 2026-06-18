@@ -1,1 +1,0 @@
-import{j as n,P as a}from"./index-B_z8IWiX.js";const s=()=>n.jsxs(n.Fragment,{children:[n.jsx(a,{title:"Unloading and Sales Form | Admin",description:""}),n.jsx("div",{children:"UnloadingAndSalesForm"})]});export{s as default};
