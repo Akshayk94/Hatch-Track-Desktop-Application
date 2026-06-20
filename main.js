@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net, Menu, shell } = require("electron");
+const { app, BrowserWindow, protocol, net, Menu, shell, dialog } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 
@@ -248,6 +248,30 @@ function createWindow() {
 
   // Open DevTools automatically during troubleshooting (Optional)
   // mainWindow.webContents.openDevTools();
+
+  mainWindow.on("close", (event) => {
+    if (isQuitting) return;
+
+    event.preventDefault();
+
+    const response = dialog.showMessageBoxSync(mainWindow, {
+      type: "question",
+      buttons: ["Yes", "No"],
+      defaultId: 1,
+      cancelId: 1,
+      title: "Confirm Exit",
+      message: "Are you sure you want to close Hatchery Management System?",
+      detail: "This will terminate all running services related to the application."
+    });
+
+    if (response === 0) {
+      isQuitting = true;
+      if (backendProcess) {
+        backendProcess.kill();
+      }
+      app.quit();
+    }
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
