@@ -134,6 +134,23 @@ function startBackend() {
   });
 }
 
+function killBackend() {
+  if (backendProcess) {
+    console.log(`Terminating backend process with PID: ${backendProcess.pid}`);
+    if (process.platform === "win32") {
+      try {
+        const { execSync } = require("child_process");
+        execSync(`taskkill /pid ${backendProcess.pid} /t /f`, { stdio: "ignore" });
+      } catch (e) {
+        console.warn("Failed to taskkill process tree, falling back to process.kill():", e.message);
+        backendProcess.kill();
+      }
+    } else {
+      backendProcess.kill();
+    }
+    backendProcess = null;
+  }
+}
 
 function createMenu() {
   const template = [
@@ -266,9 +283,7 @@ function createWindow() {
 
     if (response === 0) {
       isQuitting = true;
-      if (backendProcess) {
-        backendProcess.kill();
-      }
+      killBackend();
       app.quit();
     }
   });
@@ -305,8 +320,11 @@ app.whenReady().then(() => {
 // Gracefully clean up child processes on app exit
 app.on("window-all-closed", () => {
   isQuitting = true;
-  if (backendProcess) {
-    backendProcess.kill();
-  }
+  killBackend();
   app.quit();
+});
+
+// Ensure backend is killed under any other normal exit path
+app.on("will-quit", () => {
+  killBackend();
 });
