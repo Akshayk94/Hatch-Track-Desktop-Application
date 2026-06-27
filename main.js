@@ -1,6 +1,18 @@
-const { app, BrowserWindow, protocol, net, Menu, shell, dialog } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  protocol,
+  net,
+  Menu,
+  shell,
+  dialog,
+  ipcMain,
+  session,
+} = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
+const fs = require("fs");
+const http = require("http");
 
 // Register custom protocol 'app' as standard and secure
 protocol.registerSchemesAsPrivileged([
@@ -16,6 +28,129 @@ let logStream;
 let logFilePath;
 let isQuitting = false;
 
+// Configurable DB variables
+let dbConfig = null;
+let isBackendStarting = false;
+let startTimeoutId = null;
+let lastStartupError = null;
+let isIntentionallyStopping = false;
+
+const configPath = path.join(app.getPath("userData"), "config.json");
+
+function loadConfig() {
+  if (fs.existsSync(configPath)) {
+    try {
+      const data = fs.readFileSync(configPath, "utf8");
+      dbConfig = JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to load configuration:", e);
+    }
+  }
+}
+
+function saveConfig(config) {
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
+    dbConfig = config;
+    return true;
+  } catch (e) {
+    console.error("Failed to save configuration:", e);
+    return false;
+  }
+}
+
+function checkBackendHealth(port, callback) {
+  const options = {
+    hostname: "localhost",
+    port: port,
+    path: "/",
+    method: "GET",
+    timeout: 1000,
+  };
+
+  const req = http.request(options, (res) => {
+    // If it responds, it means the server is listening!
+    callback(true);
+  });
+
+  req.on("error", () => {
+    callback(false);
+  });
+
+  req.on("timeout", () => {
+    req.destroy();
+    callback(false);
+  });
+
+  req.end();
+}
+
+function waitForBackend(port, maxAttempts, delayMs, callback) {
+  let attempts = 0;
+
+  function poll() {
+    if (!isBackendStarting) {
+      console.log("Backend start aborted. Stopping health check.");
+      callback(false);
+      return;
+    }
+
+    attempts++;
+    console.log(
+      `Checking backend health (attempt ${attempts}/${maxAttempts})...`,
+    );
+    checkBackendHealth(port, (isAlive) => {
+      if (isAlive) {
+        console.log("Backend is online!");
+        callback(true);
+      } else if (attempts >= maxAttempts) {
+        console.log(
+          "Reached maximum health check attempts. Backend did not start.",
+        );
+        callback(false);
+      } else {
+        if (isBackendStarting) {
+          setTimeout(poll, delayMs);
+        } else {
+          console.log(
+            "Backend start aborted before next poll. Stopping health check.",
+          );
+          callback(false);
+        }
+      }
+    });
+  }
+
+  poll();
+}
+
+function setupRequestInterception() {
+  const port = dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
+
+  // Clear any existing listeners
+  session.defaultSession.webRequest.onBeforeRequest(null);
+
+  if (port !== 8080) {
+    console.log(
+      `Setting up request redirection from port 8080 to configured port ${port}`,
+    );
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ["http://localhost:8080/*"] },
+      (details, callback) => {
+        const redirectUrl = details.url.replace(
+          "http://localhost:8080",
+          `http://localhost:${port}`,
+        );
+        callback({ redirectURL: redirectUrl });
+      },
+    );
+  } else {
+    console.log(
+      "Using default API port 8080, no webRequest redirection needed.",
+    );
+  }
+}
+
 function getJavaExecutablePath() {
   if (process.platform !== "darwin") {
     return "java";
@@ -24,12 +159,14 @@ function getJavaExecutablePath() {
   const { execSync } = require("child_process");
   const fs = require("fs");
 
-  // Add common macOS paths to process.env.PATH so spawn can find java if installed via Homebrew or standard installers
   const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
-  
-  // Try to get java_home dynamically
+
   try {
-    const javaHome = execSync("/usr/libexec/java_home", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    const javaHome = execSync("/usr/libexec/java_home", {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
     if (javaHome) {
       const javaHomeBin = path.join(javaHome, "bin");
       extraPaths.unshift(javaHomeBin);
@@ -40,21 +177,22 @@ function getJavaExecutablePath() {
       }
     }
   } catch (err) {
-    console.warn("Failed to find java via /usr/libexec/java_home:", err.message);
+    console.warn(
+      "Failed to find java via /usr/libexec/java_home:",
+      err.message,
+    );
   }
 
-  // Update process.env.PATH to include common directories
   const currentPath = process.env.PATH || "";
-  const newPaths = extraPaths.filter(p => !currentPath.includes(p));
+  const newPaths = extraPaths.filter((p) => !currentPath.includes(p));
   if (newPaths.length > 0) {
     process.env.PATH = `${newPaths.join(":")}:${currentPath}`;
   }
 
-  // Check common paths directly
   const commonPaths = [
     "/opt/homebrew/bin/java",
     "/usr/local/bin/java",
-    "/usr/bin/java"
+    "/usr/bin/java",
   ];
 
   for (const javaPath of commonPaths) {
@@ -70,7 +208,6 @@ function getJavaExecutablePath() {
 function startBackend() {
   const isPackaged = app.isPackaged;
 
-  // Routes to the unpacked directory if running from a built application package
   const jarPath = isPackaged
     ? path.join(__dirname, "..", "app.asar.unpacked", "backend", "backend.jar")
     : path.join(__dirname, "backend", "backend.jar");
@@ -78,7 +215,6 @@ function startBackend() {
   const javaPath = getJavaExecutablePath();
   console.log("Launching backend using:", javaPath, "from jar:", jarPath);
 
-  const fs = require("fs");
   logFilePath = path.join(app.getPath("userData"), "backend.log");
   logStream = fs.createWriteStream(logFilePath, { flags: "a" });
 
@@ -89,66 +225,143 @@ function startBackend() {
   logStream.write(`JAR Path: ${jarPath}\n`);
 
   const { spawn } = require("child_process");
-  backendProcess = spawn(javaPath, ["-jar", jarPath]);
+
+  const args = ["-jar", jarPath];
+  if (dbConfig) {
+    if (dbConfig.dbUrl) {
+      args.push(`--spring.datasource.url=${dbConfig.dbUrl}`);
+      logStream.write(`Override DB URL: ${dbConfig.dbUrl}\n`);
+    }
+    if (dbConfig.dbUser) {
+      args.push(`--spring.datasource.username=${dbConfig.dbUser}`);
+      logStream.write(`Override DB User: ${dbConfig.dbUser}\n`);
+    }
+    if (dbConfig.dbPassword) {
+      args.push(`--spring.datasource.password=${dbConfig.dbPassword}`);
+      logStream.write(`Override DB Password: [HIDDEN]\n`);
+    }
+    if (dbConfig.apiPort) {
+      args.push(`--server.port=${dbConfig.apiPort}`);
+      logStream.write(`Override Server Port: ${dbConfig.apiPort}\n`);
+    }
+  }
+
+  isBackendStarting = true;
+  lastStartupError = null;
+
+  backendProcess = spawn(javaPath, args);
 
   backendProcess.stdout.pipe(logStream);
   backendProcess.stderr.pipe(logStream);
 
+  let stderrBuffer = "";
+  backendProcess.stderr.on("data", (data) => {
+    stderrBuffer += data.toString();
+  });
+
   backendProcess.on("error", (err) => {
     console.error(`Backend failed to start: ${err}`);
     logStream.write(`Backend failed to start: ${err}\n`);
+    isBackendStarting = false;
+    lastStartupError = err.message;
 
-    const { dialog } = require("electron");
-    dialog.showErrorBox(
-      "Java Runtime Environment Missing",
-      `Failed to launch the backend server.\n\n` +
-      `Executable attempted: "${javaPath}"\n` +
-      `Error details: ${err.message}\n\n` +
-      `Requirements:\n` +
-      `- Hatch-Track requires Java 17 or higher to be installed and available in the system PATH.\n\n` +
-      `Log File location:\n` +
-      `"${logFilePath}"`
-    );
+    if (startTimeoutId) {
+      clearTimeout(startTimeoutId);
+      startTimeoutId = null;
+    }
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("start-progress", { error: err.message });
+      if (!mainWindow.getURL().includes("config.html")) {
+        mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
+      }
+    } else {
+      createWindow();
+    }
   });
 
   backendProcess.on("exit", (code, signal) => {
     logStream.write(
       `Backend process exited with code ${code} and signal ${signal}\n`,
     );
-    if (code !== 0 && code !== null && !isQuitting) {
-      const { dialog } = require("electron");
-      dialog.showErrorBox(
-        "Backend Server Terminated",
-        `The backend server exited unexpectedly with code ${code}.\n\n` +
-        `Possible causes:\n` +
-        `1. Port 8080 is already in use by another program (e.g. docker, local dev server, or a zombie Java process).\n` +
-        `2. The database server is unreachable or offline.\n` +
-        `3. An incompatible Java version is installed (Java 17+ is required).\n\n` +
-        `Please inspect the detailed logs at:\n` +
-        `"${logFilePath}"\n\n` +
-        `Troubleshooting:\n` +
-        `- Free up port 8080 and restart the application.\n` +
-        `- Verify database connectivity.`
-      );
+    isBackendStarting = false;
+    backendProcess = null;
+
+    if (startTimeoutId) {
+      clearTimeout(startTimeoutId);
+      startTimeoutId = null;
+    }
+
+    const wasIntentional = isIntentionallyStopping;
+    isIntentionallyStopping = false; // Reset flag
+
+    if (code !== 0 && code !== null && !isQuitting && !wasIntentional) {
+      let errorReason = "Connection failed or port already in use.";
+      if (stderrBuffer.includes("Address already in use")) {
+        errorReason = "The API port is already in use by another program.";
+      } else if (
+        stderrBuffer.includes("Connection refused") ||
+        stderrBuffer.includes("FATAL: password authentication failed")
+      ) {
+        errorReason =
+          "Failed to connect to the database. Verify your URL, username, and password.";
+      } else if (stderrBuffer.includes("Driver")) {
+        errorReason =
+          "Database driver error. Verify database URL configuration.";
+      }
+
+      lastStartupError = errorReason;
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("start-progress", { error: errorReason });
+        if (!mainWindow.getURL().includes("config.html")) {
+          mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
+        }
+      } else {
+        createWindow();
+      }
     }
   });
 }
 
-function killBackend() {
-  if (backendProcess) {
-    console.log(`Terminating backend process with PID: ${backendProcess.pid}`);
-    if (process.platform === "win32") {
-      try {
-        const { execSync } = require("child_process");
-        execSync(`taskkill /pid ${backendProcess.pid} /t /f`, { stdio: "ignore" });
-      } catch (e) {
-        console.warn("Failed to taskkill process tree, falling back to process.kill():", e.message);
-        backendProcess.kill();
-      }
-    } else {
+function killBackend(callback) {
+  if (!backendProcess) {
+    if (callback) callback();
+    return;
+  }
+
+  if (
+    backendProcess.exitCode !== null &&
+    backendProcess.exitCode !== undefined
+  ) {
+    backendProcess = null;
+    if (callback) callback();
+    return;
+  }
+
+  console.log(`Terminating backend process with PID: ${backendProcess.pid}`);
+  isIntentionallyStopping = true;
+
+  backendProcess.once("exit", () => {
+    backendProcess = null;
+    if (callback) callback();
+  });
+
+  if (process.platform === "win32") {
+    try {
+      const { execSync } = require("child_process");
+      execSync(`taskkill /pid ${backendProcess.pid} /t /f`, {
+        stdio: "ignore",
+      });
+    } catch (e) {
+      console.warn(
+        "Failed to taskkill process tree, falling back to process.kill():",
+        e.message,
+      );
       backendProcess.kill();
     }
-    backendProcess = null;
+  } else {
+    backendProcess.kill();
   }
 }
 
@@ -187,11 +400,28 @@ function createMenu() {
     {
       label: "Database",
       submenu: [
+        // {
+        //   label: "Backup Database",
+        //   click: () => {
+        //     if (mainWindow) {
+        //       const port =
+        //         dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
+        //       mainWindow.webContents.downloadURL(
+        //         `http://localhost:${port}/api/v1/backup/download`,
+        //       );
+        //     }
+        //   },
+        // },
         {
-          label: "Backup Database",
+          label: "Database Settings",
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.downloadURL("http://localhost:8080/api/v1/backup/download");
+              lastStartupError = null;
+              killBackend(() => {
+                mainWindow.loadFile(
+                  path.join(__dirname, "frontend", "config.html"),
+                );
+              });
             }
           },
         },
@@ -226,7 +456,6 @@ function createMenu() {
         {
           label: "About App",
           click: () => {
-            const { dialog } = require("electron");
             dialog.showMessageBox(mainWindow, {
               type: "info",
               title: "About App",
@@ -261,6 +490,10 @@ function createMenu() {
 }
 
 function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    return;
+  }
   createMenu();
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -268,16 +501,17 @@ function createWindow() {
     title: `Hatchery Management System Version ${app.getVersion()}`,
     icon: path.join(__dirname, "frontend", "images", "icon.png"),
     webPreferences: {
+      preload: path.join(__dirname, "frontend", "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
 
-  // Loads your React frontend application static index.html via the app protocol
-  mainWindow.loadURL("app:///index.html");
-
-  // Open DevTools automatically during troubleshooting (Optional)
-  // mainWindow.webContents.openDevTools();
+  if (lastStartupError) {
+    mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
+  } else {
+    mainWindow.loadURL("app:///index.html");
+  }
 
   mainWindow.on("close", (event) => {
     if (isQuitting) return;
@@ -291,7 +525,8 @@ function createWindow() {
       cancelId: 1,
       title: "Confirm Exit",
       message: "Are you sure you want to close Hatchery Management System?",
-      detail: "This will terminate all running services related to the application."
+      detail:
+        "This will terminate all running services related to the application.",
     });
 
     if (response === 0) {
@@ -324,10 +559,156 @@ app.whenReady().then(() => {
     });
   });
 
+  loadConfig();
+  setupRequestInterception();
   startBackend();
 
-  // Give the Spring Boot app 4 seconds to warm up before opening the UI window
-  setTimeout(createWindow, 4000);
+  const port = dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
+  waitForBackend(port, 40, 500, (online) => {
+    isBackendStarting = false;
+    if (online) {
+      createWindow();
+    } else {
+      if (!lastStartupError) {
+        lastStartupError =
+          "Backend service startup timed out. Please check database settings.";
+      }
+      createWindow();
+    }
+  });
+});
+
+// Helper to read backend defaults from source properties file (in dev) or fall back to production defaults
+function getBackendDefaultCredentials() {
+  const defaults = {
+    dbUrl:
+      "jdbc:postgresql://localhost:5432/hatchery?createDatabaseIfNotExist=false",
+    dbUser: "postgres",
+    dbPassword: "root",
+    apiPort: 8080,
+  };
+
+  const devResourcesPath = path.join(
+    __dirname,
+    "..",
+    "hatch-track-spring-backend",
+    "code",
+    "src",
+    "main",
+    "resources",
+  );
+  if (fs.existsSync(devResourcesPath)) {
+    try {
+      console.log(
+        "Loading default credentials from local backend source files...",
+      );
+      const appPropsPath = path.join(
+        devResourcesPath,
+        "application.properties",
+      );
+      if (fs.existsSync(appPropsPath)) {
+        const appPropsContent = fs.readFileSync(appPropsPath, "utf8");
+        const lines = appPropsContent.split(/\r?\n/);
+        let profile = "dev";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("#") || trimmed.startsWith("!")) {
+            continue;
+          }
+          const parts = trimmed.split("=");
+          if (parts.length >= 2) {
+            const key = parts[0].trim();
+            const value = parts[1].trim();
+            if (key === "spring.profiles.active") {
+              profile = value;
+              break;
+            }
+          }
+        }
+
+        const profilePropsPath = path.join(
+          devResourcesPath,
+          `application-${profile}.properties`,
+        );
+        if (fs.existsSync(profilePropsPath)) {
+          const profilePropsContent = fs.readFileSync(profilePropsPath, "utf8");
+          const profileLines = profilePropsContent.split(/\r?\n/);
+
+          for (const line of profileLines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("#") || trimmed.startsWith("!")) {
+              continue;
+            }
+            const parts = trimmed.split("=");
+            if (parts.length >= 2) {
+              const key = parts[0].trim();
+              const value = parts.slice(1).join("=").trim();
+
+              if (key === "spring.datasource.url") defaults.dbUrl = value;
+              if (key === "spring.datasource.username") defaults.dbUser = value;
+              if (key === "spring.datasource.password")
+                defaults.dbPassword = value;
+              if (key === "server.port") {
+                const portVal = parseInt(value, 10);
+                if (!isNaN(portVal)) defaults.apiPort = portVal;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse backend source properties:", e);
+    }
+  }
+
+  return defaults;
+}
+
+// IPC communication handlers
+ipcMain.handle("get-config", () => {
+  const backendDefaults = getBackendDefaultCredentials();
+
+  return {
+    dbUrl: dbConfig && dbConfig.dbUrl ? dbConfig.dbUrl : backendDefaults.dbUrl,
+    dbUser:
+      dbConfig && dbConfig.dbUser ? dbConfig.dbUser : backendDefaults.dbUser,
+    dbPassword:
+      dbConfig && dbConfig.dbPassword
+        ? dbConfig.dbPassword
+        : backendDefaults.dbPassword,
+    apiPort:
+      dbConfig && dbConfig.apiPort ? dbConfig.apiPort : backendDefaults.apiPort,
+    lastError: lastStartupError,
+  };
+});
+
+ipcMain.on("save-config", (event, config) => {
+  const success = saveConfig(config);
+  event.reply("config-saved", { success });
+
+  if (success) {
+    dialog.showMessageBoxSync(mainWindow, {
+      type: "info",
+      title: "Restart Required",
+      message: "Database settings saved successfully!",
+      detail:
+        "The application needs to restart to apply your new settings. Clicking OK will relaunch the app.",
+      buttons: ["OK"],
+    });
+
+    killBackend(() => {
+      app.relaunch();
+      app.exit(0);
+    });
+  }
+});
+
+ipcMain.on("go-back", () => {
+  if (mainWindow) {
+    lastStartupError = null;
+    mainWindow.loadURL("app:///index.html");
+  }
 });
 
 // Gracefully clean up child processes on app exit
