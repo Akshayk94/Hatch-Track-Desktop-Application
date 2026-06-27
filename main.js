@@ -21,8 +21,62 @@ const TRIAL_SETTINGS = {
   enabled: true, // Toggle trial period checks
   durationDays: null, // Set to trial length in days (e.g. 30), or null to use minutes
   durationMinutes: 15, // Set to trial length in minutes for testing (e.g. 5)
+  // Configurable template for the application title bar
+  titleTemplate: "{title} (Trial Version: {remaining} remaining of {duration} trial)",
 };
 // ==========================================
+
+let trialStartDate = null;
+let lastRawPageTitle = "";
+
+function getFormattedTrialTitle(pageTitle) {
+  const version = app.getVersion();
+  if (!TRIAL_SETTINGS.enabled || !trialStartDate) {
+    return pageTitle || `Hatchery Management System Version ${version}`;
+  }
+
+  const now = new Date();
+  
+  // Calculate total duration in ms
+  let durationMs = 0;
+  let durationText = "";
+  if (TRIAL_SETTINGS.durationDays !== null && TRIAL_SETTINGS.durationDays !== undefined) {
+    durationMs = TRIAL_SETTINGS.durationDays * 24 * 60 * 60 * 1000;
+    durationText = `${TRIAL_SETTINGS.durationDays} day${TRIAL_SETTINGS.durationDays > 1 ? "s" : ""}`;
+  } else if (TRIAL_SETTINGS.durationMinutes !== null && TRIAL_SETTINGS.durationMinutes !== undefined) {
+    durationMs = TRIAL_SETTINGS.durationMinutes * 60 * 1000;
+    durationText = `${TRIAL_SETTINGS.durationMinutes} minute${TRIAL_SETTINGS.durationMinutes > 1 ? "s" : ""}`;
+  }
+
+  const expirationDate = new Date(trialStartDate.getTime() + durationMs);
+  const remainingMs = expirationDate.getTime() - now.getTime();
+
+  let remainingText = "Expired";
+  if (remainingMs > 0) {
+    if (TRIAL_SETTINGS.durationDays !== null && TRIAL_SETTINGS.durationDays !== undefined) {
+      const remainingDays = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
+      if (remainingDays >= 1) {
+        remainingText = `${remainingDays} day${remainingDays > 1 ? "s" : ""}`;
+      } else {
+        const remainingMins = Math.ceil(remainingMs / (60 * 1000));
+        remainingText = `${remainingMins} minute${remainingMins > 1 ? "s" : ""}`;
+      }
+    } else {
+      const remainingMins = Math.ceil(remainingMs / (60 * 1000));
+      remainingText = `${remainingMins} minute${remainingMins > 1 ? "s" : ""}`;
+    }
+  }
+
+  const template = TRIAL_SETTINGS.titleTemplate || "{title} (Trial Version: {remaining} remaining of {duration} trial)";
+  const baseTitle = pageTitle || "Hatchery Management System";
+  
+  return template
+    .replace("{title}", baseTitle)
+    .replace("{version}", version)
+    .replace("{remaining}", remainingText)
+    .replace("{duration}", durationText);
+}
+
 
 function checkTrialStatus() {
   if (!TRIAL_SETTINGS.enabled) {
@@ -58,6 +112,7 @@ function checkTrialStatus() {
   }
 
   const startDate = new Date(startDateStr);
+  trialStartDate = startDate; // Cache start date in memory
   const now = new Date();
 
   // Determine trial duration in milliseconds
@@ -104,6 +159,8 @@ function createTrialExpiredWindow() {
     resizable: false,
     minimizable: true,
     maximizable: false,
+    show: false, // Prevent white flash
+    backgroundColor: "#0f172a", // Match theme
     title: "Trial Period Expired",
     icon: path.join(__dirname, "frontend", "images", "icon.png"),
     webPreferences: {
@@ -114,6 +171,10 @@ function createTrialExpiredWindow() {
   });
 
   mainWindow.loadURL("app:///trial_expired.html");
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -151,8 +212,12 @@ function startLiveTrialCheck() {
           createTrialExpiredWindow();
         });
       }
+    } else {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setTitle(getFormattedTrialTitle(lastRawPageTitle));
+      }
     }
-  }, 10000); // Check every 10 seconds
+  }, 5000); // Check and update title every 5 seconds
 }
 
 // Register custom protocol 'app' as standard and secure
@@ -636,10 +701,15 @@ function createWindow() {
     return;
   }
   createMenu();
+  
+  lastRawPageTitle = `Hatchery Management System Version ${app.getVersion()}`;
+  
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: `Hatchery Management System Version ${app.getVersion()}`,
+    show: false, // Prevent white flash
+    backgroundColor: "#0f172a", // Match theme
+    title: getFormattedTrialTitle(lastRawPageTitle),
     icon: path.join(__dirname, "frontend", "images", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "frontend", "preload.js"),
@@ -648,11 +718,22 @@ function createWindow() {
     },
   });
 
+  // Intercept renderer document title changes and append trial status
+  mainWindow.on("page-title-updated", (event, title) => {
+    event.preventDefault();
+    lastRawPageTitle = title;
+    mainWindow.setTitle(getFormattedTrialTitle(title));
+  });
+
   if (lastStartupError) {
     mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
   } else {
     mainWindow.loadURL("app:///index.html");
   }
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+  });
 
   mainWindow.on("close", (event) => {
     if (isQuitting) return;

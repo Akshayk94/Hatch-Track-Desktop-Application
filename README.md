@@ -516,13 +516,20 @@ Trial settings can be managed directly in the [main.js](file:///d:/Private_Work/
 const TRIAL_SETTINGS = {
   enabled: true,            // Toggle trial checks (true/false)
   durationDays: null,       // Set to the duration in days (e.g. 30), or null to use minutes
-  durationMinutes: 5,       // Set to the duration in minutes for testing (e.g. 5)
+  durationMinutes: 15,      // Set to the duration in minutes for testing (e.g. 5)
+  // Configurable template for the application title bar
+  titleTemplate: "{title} (Trial Version: {remaining} remaining of {duration} trial)",
 };
 ```
 
 - **`enabled`**: If set to `false`, trial checks are skipped entirely and the app launches directly.
 - **`durationDays`**: Specifies the trial length in days. In production, this should be set to your desired trial duration (e.g., `30`) and `durationMinutes` should be set to `null`.
-- **`durationMinutes`**: For rapid testing, you can set `durationDays` to `null` and configure the duration in minutes (e.g., `5`).
+- **`durationMinutes`**: For rapid testing, you can set `durationDays` to `null` and configure the duration in minutes (e.g., `15`).
+- **`titleTemplate`**: The format of the trial notification in the application's top window title bar. It supports the following placeholders:
+  - `{title}`: The page's raw document title (e.g., `Sign In | Hatchery Admin`).
+  - `{version}`: The application version (e.g., `1.0.0`).
+  - `{remaining}`: The remaining trial time (e.g., `12 minutes` or `14 days`).
+  - `{duration}`: The total trial duration (e.g., `15 minutes` or `30 days`).
 
 ### 2. How the Trial state is Tracked
 - **Storage Location**: The application records the first launch timestamp in an obfuscated format (`Base64`) within a system file named `.app_state.json` inside the user's standard application data directory:
