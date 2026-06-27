@@ -502,3 +502,31 @@ npm run dist:linux
 
 > [!WARNING]
 > For either the `.exe` or `.dmg` file to run successfully on a customer's machine, the client's computer **MUST** have **Java 17+** installed locally and added to their system environment variables. Additionally, a database instance must be accessible as defined in your backend connection settings.
+
+---
+
+## Trial Period Settings & Configuration
+
+The application includes a trial period enforcement mechanism. Once the trial expires, the user is prevented from opening the application or starting the database backend, and a custom "Trial Period Expired" warning page is displayed. Additionally, if the trial expires while the user is actively using the application, the app will show a native warning popup, terminate the backend server, and automatically redirect the user to the Trial Expired window.
+
+### 1. How to Configure the Trial Settings
+Trial settings can be managed directly in the [main.js](file:///d:/Private_Work/React_Train/Commercial/project_space/electron-js-desktop-app/main.js) file at the top of the script:
+
+```javascript
+const TRIAL_SETTINGS = {
+  enabled: true,            // Toggle trial checks (true/false)
+  durationDays: null,       // Set to the duration in days (e.g. 30), or null to use minutes
+  durationMinutes: 5,       // Set to the duration in minutes for testing (e.g. 5)
+};
+```
+
+- **`enabled`**: If set to `false`, trial checks are skipped entirely and the app launches directly.
+- **`durationDays`**: Specifies the trial length in days. In production, this should be set to your desired trial duration (e.g., `30`) and `durationMinutes` should be set to `null`.
+- **`durationMinutes`**: For rapid testing, you can set `durationDays` to `null` and configure the duration in minutes (e.g., `5`).
+
+### 2. How the Trial state is Tracked
+- **Storage Location**: The application records the first launch timestamp in an obfuscated format (`Base64`) within a system file named `.app_state.json` inside the user's standard application data directory:
+  - **Windows**: `C:\Users\<username>\AppData\Roaming\hatchery-management-system\.app_state.json`
+- **Clock Tampering Protection**: If the system clock is set back to a date earlier than the original installation date, the application will detect the rollback and treat the trial as expired.
+- **Resetting the Trial (for testing)**: To reset the trial period on a test machine, delete the `.app_state.json` file in the directory above. Relaunching the application will then start a fresh trial period.
+

@@ -14,6 +14,147 @@ const { pathToFileURL } = require("url");
 const fs = require("fs");
 const http = require("http");
 
+// ==========================================
+// TRIAL PERIOD CONFIGURATION SETTINGS
+// ==========================================
+const TRIAL_SETTINGS = {
+  enabled: true, // Toggle trial period checks
+  durationDays: null, // Set to trial length in days (e.g. 30), or null to use minutes
+  durationMinutes: 15, // Set to trial length in minutes for testing (e.g. 5)
+};
+// ==========================================
+
+function checkTrialStatus() {
+  if (!TRIAL_SETTINGS.enabled) {
+    return { expired: false };
+  }
+
+  const trialPath = path.join(app.getPath("userData"), ".app_state.json");
+  let startDateStr;
+
+  if (fs.existsSync(trialPath)) {
+    try {
+      const data = fs.readFileSync(trialPath, "utf8");
+      // Decrypt the obfuscated base64 data
+      const decrypted = Buffer.from(data, "base64").toString("utf8");
+      const trialInfo = JSON.parse(decrypted);
+      startDateStr = trialInfo.startDate;
+    } catch (e) {
+      console.error("Failed to read trial configuration:", e);
+    }
+  }
+
+  // If no start date exists, record the current time as the start date (first launch/installation)
+  if (!startDateStr) {
+    startDateStr = new Date().toISOString();
+    try {
+      const data = JSON.stringify({ startDate: startDateStr }, null, 2);
+      // Encrypt/obfuscate the data with base64
+      const obfuscated = Buffer.from(data).toString("base64");
+      fs.writeFileSync(trialPath, obfuscated, "utf8");
+    } catch (e) {
+      console.error("Failed to save trial configuration:", e);
+    }
+  }
+
+  const startDate = new Date(startDateStr);
+  const now = new Date();
+
+  // Determine trial duration in milliseconds
+  let durationMs = 0;
+  if (
+    TRIAL_SETTINGS.durationDays !== null &&
+    TRIAL_SETTINGS.durationDays !== undefined
+  ) {
+    durationMs = TRIAL_SETTINGS.durationDays * 24 * 60 * 60 * 1000;
+  } else if (
+    TRIAL_SETTINGS.durationMinutes !== null &&
+    TRIAL_SETTINGS.durationMinutes !== undefined
+  ) {
+    durationMs = TRIAL_SETTINGS.durationMinutes * 60 * 1000;
+  }
+
+  const expirationDate = new Date(startDate.getTime() + durationMs);
+
+  // Clock rollback detection: current time is before the recorded startup time
+  if (now < startDate) {
+    return {
+      expired: true,
+      reason:
+        "System clock rollback detected. Please correct your system time.",
+    };
+  }
+
+  if (now >= expirationDate) {
+    return {
+      expired: true,
+      reason:
+        "Trial period expired. Please contact software provider for support.",
+    };
+  }
+
+  return { expired: false };
+}
+
+function createTrialExpiredWindow() {
+  createMenu();
+  mainWindow = new BrowserWindow({
+    width: 650,
+    height: 450,
+    resizable: false,
+    minimizable: true,
+    maximizable: false,
+    title: "Trial Period Expired",
+    icon: path.join(__dirname, "frontend", "images", "icon.png"),
+    webPreferences: {
+      preload: path.join(__dirname, "frontend", "preload.js"),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  mainWindow.loadURL("app:///trial_expired.html");
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+}
+
+let trialCheckInterval = null;
+
+function startLiveTrialCheck() {
+  if (!TRIAL_SETTINGS.enabled) return;
+
+  if (trialCheckInterval) {
+    clearInterval(trialCheckInterval);
+  }
+
+  trialCheckInterval = setInterval(() => {
+    const trial = checkTrialStatus();
+    if (trial.expired) {
+      clearInterval(trialCheckInterval);
+      trialCheckInterval = null;
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        dialog.showMessageBoxSync(mainWindow, {
+          type: "warning",
+          title: "Trial Period Expired",
+          message: "Trial period expired.",
+          detail: "Please contact software provider for support.",
+          buttons: ["OK"],
+        });
+
+        killBackend(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.destroy();
+          }
+          createTrialExpiredWindow();
+        });
+      }
+    }
+  }, 10000); // Check every 10 seconds
+}
+
 // Register custom protocol 'app' as standard and secure
 protocol.registerSchemesAsPrivileged([
   {
@@ -547,6 +688,16 @@ app.whenReady().then(() => {
   protocol.handle("app", (request) => {
     const url = new URL(request.url);
     let pathname = url.pathname;
+
+    // Normalize custom protocol routing (e.g. app://trial_expired.html/ -> trial_expired.html)
+    if (
+      (pathname === "/" || pathname === "") &&
+      url.hostname &&
+      url.hostname !== ""
+    ) {
+      pathname = "/" + url.hostname;
+    }
+
     if (pathname === "/" || pathname === "") {
       pathname = "/index.html";
     }
@@ -560,6 +711,14 @@ app.whenReady().then(() => {
   });
 
   loadConfig();
+
+  // Enforce trial period checks before setting up database or starting backend
+  const trial = checkTrialStatus();
+  if (trial.expired) {
+    createTrialExpiredWindow();
+    return;
+  }
+
   setupRequestInterception();
   startBackend();
 
@@ -568,12 +727,14 @@ app.whenReady().then(() => {
     isBackendStarting = false;
     if (online) {
       createWindow();
+      startLiveTrialCheck();
     } else {
       if (!lastStartupError) {
         lastStartupError =
           "Backend service startup timed out. Please check database settings.";
       }
       createWindow();
+      startLiveTrialCheck();
     }
   });
 });
@@ -711,6 +872,12 @@ ipcMain.on("go-back", () => {
   }
 });
 
+ipcMain.on("close-app", () => {
+  isQuitting = true;
+  killBackend();
+  app.quit();
+});
+
 // Gracefully clean up child processes on app exit
 app.on("window-all-closed", () => {
   isQuitting = true;
@@ -720,5 +887,8 @@ app.on("window-all-closed", () => {
 
 // Ensure backend is killed under any other normal exit path
 app.on("will-quit", () => {
+  if (trialCheckInterval) {
+    clearInterval(trialCheckInterval);
+  }
   killBackend();
 });
