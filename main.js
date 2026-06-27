@@ -19,10 +19,11 @@ const http = require("http");
 // ==========================================
 const TRIAL_SETTINGS = {
   enabled: true, // Toggle trial period checks
-  durationDays: null, // Set to trial length in days (e.g. 30), or null to use minutes
-  durationMinutes: 15, // Set to trial length in minutes for testing (e.g. 5)
+  durationDays: 12, // Set to trial length in days (e.g. 30), or null to use minutes
+  durationMinutes: null, // Set to trial length in minutes for testing (e.g. 5)
   // Configurable template for the application title bar
-  titleTemplate: "{title} (Trial Version: {remaining} remaining of {duration} trial)",
+  titleTemplate:
+    "{title} (Trial Version: {remaining} remaining of {duration} trial)",
 };
 // ==========================================
 
@@ -36,14 +37,20 @@ function getFormattedTrialTitle(pageTitle) {
   }
 
   const now = new Date();
-  
+
   // Calculate total duration in ms
   let durationMs = 0;
   let durationText = "";
-  if (TRIAL_SETTINGS.durationDays !== null && TRIAL_SETTINGS.durationDays !== undefined) {
+  if (
+    TRIAL_SETTINGS.durationDays !== null &&
+    TRIAL_SETTINGS.durationDays !== undefined
+  ) {
     durationMs = TRIAL_SETTINGS.durationDays * 24 * 60 * 60 * 1000;
     durationText = `${TRIAL_SETTINGS.durationDays} day${TRIAL_SETTINGS.durationDays > 1 ? "s" : ""}`;
-  } else if (TRIAL_SETTINGS.durationMinutes !== null && TRIAL_SETTINGS.durationMinutes !== undefined) {
+  } else if (
+    TRIAL_SETTINGS.durationMinutes !== null &&
+    TRIAL_SETTINGS.durationMinutes !== undefined
+  ) {
     durationMs = TRIAL_SETTINGS.durationMinutes * 60 * 1000;
     durationText = `${TRIAL_SETTINGS.durationMinutes} minute${TRIAL_SETTINGS.durationMinutes > 1 ? "s" : ""}`;
   }
@@ -53,7 +60,10 @@ function getFormattedTrialTitle(pageTitle) {
 
   let remainingText = "Expired";
   if (remainingMs > 0) {
-    if (TRIAL_SETTINGS.durationDays !== null && TRIAL_SETTINGS.durationDays !== undefined) {
+    if (
+      TRIAL_SETTINGS.durationDays !== null &&
+      TRIAL_SETTINGS.durationDays !== undefined
+    ) {
       const remainingDays = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
       if (remainingDays >= 1) {
         remainingText = `${remainingDays} day${remainingDays > 1 ? "s" : ""}`;
@@ -67,16 +77,17 @@ function getFormattedTrialTitle(pageTitle) {
     }
   }
 
-  const template = TRIAL_SETTINGS.titleTemplate || "{title} (Trial Version: {remaining} remaining of {duration} trial)";
+  const template =
+    TRIAL_SETTINGS.titleTemplate ||
+    "{title} (Trial Version: {remaining} remaining of {duration} trial)";
   const baseTitle = pageTitle || "Hatchery Management System";
-  
+
   return template
     .replace("{title}", baseTitle)
     .replace("{version}", version)
     .replace("{remaining}", remainingText)
     .replace("{duration}", durationText);
 }
-
 
 function checkTrialStatus() {
   if (!TRIAL_SETTINGS.enabled) {
@@ -701,9 +712,9 @@ function createWindow() {
     return;
   }
   createMenu();
-  
+
   lastRawPageTitle = `Hatchery Management System Version ${app.getVersion()}`;
-  
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
