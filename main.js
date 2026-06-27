@@ -185,6 +185,19 @@ function createMenu() {
       submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "close" }],
     },
     {
+      label: "Database",
+      submenu: [
+        {
+          label: "Backup Database",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.downloadURL("http://localhost:8080/api/v1/backup/download");
+            }
+          },
+        },
+      ],
+    },
+    {
       label: "Logs",
       submenu: [
         {
