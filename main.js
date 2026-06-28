@@ -173,7 +173,7 @@ function createTrialExpiredWindow() {
     show: false, // Prevent white flash
     backgroundColor: "#0f172a", // Match theme
     title: "Trial Period Expired",
-    icon: path.join(__dirname, "frontend", "images", "icon.png"),
+    icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "frontend", "preload.js"),
       nodeIntegration: false,
@@ -489,8 +489,13 @@ function startBackend() {
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("start-progress", { error: err.message });
-      if (!mainWindow.getURL().includes("config.html")) {
-        mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
+      try {
+        const currentUrl = mainWindow.webContents.getURL();
+        if (!currentUrl.includes("config.html")) {
+          mainWindow.loadURL("app:///config.html");
+        }
+      } catch (urlErr) {
+        mainWindow.loadURL("app:///config.html");
       }
     } else {
       createWindow();
@@ -531,8 +536,13 @@ function startBackend() {
 
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("start-progress", { error: errorReason });
-        if (!mainWindow.getURL().includes("config.html")) {
-          mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
+        try {
+          const currentUrl = mainWindow.webContents.getURL();
+          if (!currentUrl.includes("config.html")) {
+            mainWindow.loadURL("app:///config.html");
+          }
+        } catch (urlErr) {
+          mainWindow.loadURL("app:///config.html");
         }
       } else {
         createWindow();
@@ -635,9 +645,7 @@ function createMenu() {
             if (mainWindow) {
               lastStartupError = null;
               killBackend(() => {
-                mainWindow.loadFile(
-                  path.join(__dirname, "frontend", "config.html"),
-                );
+                mainWindow.loadURL("app:///config.html");
               });
             }
           },
@@ -721,7 +729,7 @@ function createWindow() {
     show: false, // Prevent white flash
     backgroundColor: "#0f172a", // Match theme
     title: getFormattedTrialTitle(lastRawPageTitle),
-    icon: path.join(__dirname, "frontend", "images", "icon.png"),
+    icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "frontend", "preload.js"),
       nodeIntegration: false,
@@ -737,10 +745,23 @@ function createWindow() {
   });
 
   if (lastStartupError) {
-    mainWindow.loadFile(path.join(__dirname, "frontend", "config.html"));
+    mainWindow.loadURL("app:///config.html");
   } else {
     mainWindow.loadURL("app:///index.html");
   }
+
+  // Safety: if the page fails to load (e.g. missing file), show the window anyway
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`Failed to load ${validatedURL}: ${errorDescription} (code: ${errorCode})`);
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    // If the main app failed to load, fall back to config page
+    if (validatedURL && validatedURL.includes("index.html")) {
+      lastStartupError = lastStartupError || "Failed to load the application. Please check your settings.";
+      mainWindow.loadURL("app:///config.html");
+    }
+  });
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -960,7 +981,30 @@ ipcMain.on("save-config", (event, config) => {
 ipcMain.on("go-back", () => {
   if (mainWindow) {
     lastStartupError = null;
-    mainWindow.loadURL("app:///index.html");
+
+    // Check if backend is running before navigating back
+    if (backendProcess && backendProcess.exitCode === null) {
+      // Backend is running, safe to go back to the main app
+      mainWindow.loadURL("app:///index.html");
+    } else {
+      // Backend is not running, restart it first
+      setupRequestInterception();
+      startBackend();
+
+      const port = dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
+      waitForBackend(port, 40, 500, (online) => {
+        isBackendStarting = false;
+        if (online) {
+          mainWindow.loadURL("app:///index.html");
+          startLiveTrialCheck();
+        } else {
+          if (!lastStartupError) {
+            lastStartupError = "Backend service startup timed out. Please check database settings.";
+          }
+          mainWindow.loadURL("app:///config.html");
+        }
+      });
+    }
   }
 });
 
