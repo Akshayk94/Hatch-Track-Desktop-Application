@@ -245,36 +245,10 @@ let logStream;
 let logFilePath;
 let isQuitting = false;
 
-// Configurable DB variables
-let dbConfig = null;
 let isBackendStarting = false;
 let startTimeoutId = null;
 let lastStartupError = null;
 let isIntentionallyStopping = false;
-
-const configPath = path.join(app.getPath("userData"), "config.json");
-
-function loadConfig() {
-  if (fs.existsSync(configPath)) {
-    try {
-      const data = fs.readFileSync(configPath, "utf8");
-      dbConfig = JSON.parse(data);
-    } catch (e) {
-      console.error("Failed to load configuration:", e);
-    }
-  }
-}
-
-function saveConfig(config) {
-  try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
-    dbConfig = config;
-    return true;
-  } catch (e) {
-    console.error("Failed to save configuration:", e);
-    return false;
-  }
-}
 
 function checkBackendHealth(port, callback) {
   const options = {
@@ -341,32 +315,7 @@ function waitForBackend(port, maxAttempts, delayMs, callback) {
   poll();
 }
 
-function setupRequestInterception() {
-  const port = dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
 
-  // Clear any existing listeners
-  session.defaultSession.webRequest.onBeforeRequest(null);
-
-  if (port !== 8080) {
-    console.log(
-      `Setting up request redirection from port 8080 to configured port ${port}`,
-    );
-    session.defaultSession.webRequest.onBeforeRequest(
-      { urls: ["http://localhost:8080/*"] },
-      (details, callback) => {
-        const redirectUrl = details.url.replace(
-          "http://localhost:8080",
-          `http://localhost:${port}`,
-        );
-        callback({ redirectURL: redirectUrl });
-      },
-    );
-  } else {
-    console.log(
-      "Using default API port 8080, no webRequest redirection needed.",
-    );
-  }
-}
 
 function getJavaExecutablePath() {
   if (process.platform !== "darwin") {
@@ -443,63 +392,34 @@ function startBackend() {
 
   const { spawn } = require("child_process");
 
-  const args = ["-jar", jarPath];
-  if (dbConfig) {
-    if (dbConfig.dbUrl) {
-      args.push(`--spring.datasource.url=${dbConfig.dbUrl}`);
-      logStream.write(`Override DB URL: ${dbConfig.dbUrl}\n`);
-    }
-    if (dbConfig.dbUser) {
-      args.push(`--spring.datasource.username=${dbConfig.dbUser}`);
-      logStream.write(`Override DB User: ${dbConfig.dbUser}\n`);
-    }
-    if (dbConfig.dbPassword) {
-      args.push(`--spring.datasource.password=${dbConfig.dbPassword}`);
-      logStream.write(`Override DB Password: [HIDDEN]\n`);
-    }
-    if (dbConfig.apiPort) {
-      args.push(`--server.port=${dbConfig.apiPort}`);
-      logStream.write(`Override Server Port: ${dbConfig.apiPort}\n`);
-    }
-  }
-
   isBackendStarting = true;
   lastStartupError = null;
 
-  backendProcess = spawn(javaPath, args);
+  backendProcess = spawn(javaPath, ["-jar", jarPath]);
 
   backendProcess.stdout.pipe(logStream);
   backendProcess.stderr.pipe(logStream);
-
-  let stderrBuffer = "";
-  backendProcess.stderr.on("data", (data) => {
-    stderrBuffer += data.toString();
-  });
 
   backendProcess.on("error", (err) => {
     console.error(`Backend failed to start: ${err}`);
     logStream.write(`Backend failed to start: ${err}\n`);
     isBackendStarting = false;
-    lastStartupError = err.message;
 
     if (startTimeoutId) {
       clearTimeout(startTimeoutId);
       startTimeoutId = null;
     }
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("start-progress", { error: err.message });
-      try {
-        const currentUrl = mainWindow.webContents.getURL();
-        if (!currentUrl.includes("config.html")) {
-          mainWindow.loadURL("app:///config.html");
-        }
-      } catch (urlErr) {
-        mainWindow.loadURL("app:///config.html");
-      }
-    } else {
-      createWindow();
-    }
+    dialog.showErrorBox(
+      "Java Runtime Environment Missing",
+      `Failed to launch the backend server.\n\n` +
+      `Executable attempted: "${javaPath}"\n` +
+      `Error details: ${err.message}\n\n` +
+      `Requirements:\n` +
+      `- Hatch-Track requires Java 17 or higher to be installed and available in the system PATH.\n\n` +
+      `Log File location:\n` +
+      `"${logFilePath}"`
+    );
   });
 
   backendProcess.on("exit", (code, signal) => {
@@ -518,35 +438,19 @@ function startBackend() {
     isIntentionallyStopping = false; // Reset flag
 
     if (code !== 0 && code !== null && !isQuitting && !wasIntentional) {
-      let errorReason = "Connection failed or port already in use.";
-      if (stderrBuffer.includes("Address already in use")) {
-        errorReason = "The API port is already in use by another program.";
-      } else if (
-        stderrBuffer.includes("Connection refused") ||
-        stderrBuffer.includes("FATAL: password authentication failed")
-      ) {
-        errorReason =
-          "Failed to connect to the database. Verify your URL, username, and password.";
-      } else if (stderrBuffer.includes("Driver")) {
-        errorReason =
-          "Database driver error. Verify database URL configuration.";
-      }
-
-      lastStartupError = errorReason;
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("start-progress", { error: errorReason });
-        try {
-          const currentUrl = mainWindow.webContents.getURL();
-          if (!currentUrl.includes("config.html")) {
-            mainWindow.loadURL("app:///config.html");
-          }
-        } catch (urlErr) {
-          mainWindow.loadURL("app:///config.html");
-        }
-      } else {
-        createWindow();
-      }
+      dialog.showErrorBox(
+        "Backend Server Terminated",
+        `The backend server exited unexpectedly with code ${code}.\n\n` +
+        `Possible causes:\n` +
+        `1. Port 8080 is already in use by another program (e.g. docker, local dev server, or a zombie Java process).\n` +
+        `2. The database server is unreachable or offline.\n` +
+        `3. An incompatible Java version is installed (Java 17+ is required).\n\n` +
+        `Please inspect the detailed logs at:\n` +
+        `"${logFilePath}"\n\n` +
+        `Troubleshooting:\n` +
+        `- Free up port 8080 and restart the application.\n` +
+        `- Verify database connectivity.`
+      );
     }
   });
 }
@@ -624,34 +528,7 @@ function createMenu() {
       label: "Window",
       submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "close" }],
     },
-    {
-      label: "Database",
-      submenu: [
-        // {
-        //   label: "Backup Database",
-        //   click: () => {
-        //     if (mainWindow) {
-        //       const port =
-        //         dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
-        //       mainWindow.webContents.downloadURL(
-        //         `http://localhost:${port}/api/v1/backup/download`,
-        //       );
-        //     }
-        //   },
-        // },
-        {
-          label: "Database Settings",
-          click: () => {
-            if (mainWindow) {
-              lastStartupError = null;
-              killBackend(() => {
-                mainWindow.loadURL("app:///config.html");
-              });
-            }
-          },
-        },
-      ],
-    },
+
     {
       label: "Logs",
       submenu: [
@@ -744,22 +621,13 @@ function createWindow() {
     mainWindow.setTitle(getFormattedTrialTitle(title));
   });
 
-  if (lastStartupError) {
-    mainWindow.loadURL("app:///config.html");
-  } else {
-    mainWindow.loadURL("app:///index.html");
-  }
+  mainWindow.loadURL("app:///index.html");
 
   // Safety: if the page fails to load (e.g. missing file), show the window anyway
   mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
     console.error(`Failed to load ${validatedURL}: ${errorDescription} (code: ${errorCode})`);
     if (!mainWindow.isVisible()) {
       mainWindow.show();
-    }
-    // If the main app failed to load, fall back to config page
-    if (validatedURL && validatedURL.includes("index.html")) {
-      lastStartupError = lastStartupError || "Failed to load the application. Please check your settings.";
-      mainWindow.loadURL("app:///config.html");
     }
   });
 
@@ -823,8 +691,6 @@ app.whenReady().then(() => {
     });
   });
 
-  loadConfig();
-
   // Enforce trial period checks before setting up database or starting backend
   const trial = checkTrialStatus();
   if (trial.expired) {
@@ -832,180 +698,20 @@ app.whenReady().then(() => {
     return;
   }
 
-  setupRequestInterception();
   startBackend();
 
-  const port = dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
-  waitForBackend(port, 40, 500, (online) => {
+  waitForBackend(8080, 180, 500, (online) => {
     isBackendStarting = false;
     if (online) {
       createWindow();
       startLiveTrialCheck();
     } else {
-      if (!lastStartupError) {
-        lastStartupError =
-          "Backend service startup timed out. Please check database settings.";
-      }
-      createWindow();
-      startLiveTrialCheck();
+      dialog.showErrorBox(
+        "Backend Service Startup Timed Out",
+        "The backend server took too long to start. Please check Java installation and logs."
+      );
     }
   });
-});
-
-// Helper to read backend defaults from source properties file (in dev) or fall back to production defaults
-function getBackendDefaultCredentials() {
-  const defaults = {
-    dbUrl:
-      "jdbc:postgresql://localhost:5432/hatchery?createDatabaseIfNotExist=false",
-    dbUser: "postgres",
-    dbPassword: "root",
-    apiPort: 8080,
-  };
-
-  const devResourcesPath = path.join(
-    __dirname,
-    "..",
-    "hatch-track-spring-backend",
-    "code",
-    "src",
-    "main",
-    "resources",
-  );
-  if (fs.existsSync(devResourcesPath)) {
-    try {
-      console.log(
-        "Loading default credentials from local backend source files...",
-      );
-      const appPropsPath = path.join(
-        devResourcesPath,
-        "application.properties",
-      );
-      if (fs.existsSync(appPropsPath)) {
-        const appPropsContent = fs.readFileSync(appPropsPath, "utf8");
-        const lines = appPropsContent.split(/\r?\n/);
-        let profile = "dev";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith("#") || trimmed.startsWith("!")) {
-            continue;
-          }
-          const parts = trimmed.split("=");
-          if (parts.length >= 2) {
-            const key = parts[0].trim();
-            const value = parts[1].trim();
-            if (key === "spring.profiles.active") {
-              profile = value;
-              break;
-            }
-          }
-        }
-
-        const profilePropsPath = path.join(
-          devResourcesPath,
-          `application-${profile}.properties`,
-        );
-        if (fs.existsSync(profilePropsPath)) {
-          const profilePropsContent = fs.readFileSync(profilePropsPath, "utf8");
-          const profileLines = profilePropsContent.split(/\r?\n/);
-
-          for (const line of profileLines) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith("#") || trimmed.startsWith("!")) {
-              continue;
-            }
-            const parts = trimmed.split("=");
-            if (parts.length >= 2) {
-              const key = parts[0].trim();
-              const value = parts.slice(1).join("=").trim();
-
-              if (key === "spring.datasource.url") defaults.dbUrl = value;
-              if (key === "spring.datasource.username") defaults.dbUser = value;
-              if (key === "spring.datasource.password")
-                defaults.dbPassword = value;
-              if (key === "server.port") {
-                const portVal = parseInt(value, 10);
-                if (!isNaN(portVal)) defaults.apiPort = portVal;
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to parse backend source properties:", e);
-    }
-  }
-
-  return defaults;
-}
-
-// IPC communication handlers
-ipcMain.handle("get-config", () => {
-  const backendDefaults = getBackendDefaultCredentials();
-
-  return {
-    dbUrl: dbConfig && dbConfig.dbUrl ? dbConfig.dbUrl : backendDefaults.dbUrl,
-    dbUser:
-      dbConfig && dbConfig.dbUser ? dbConfig.dbUser : backendDefaults.dbUser,
-    dbPassword:
-      dbConfig && dbConfig.dbPassword
-        ? dbConfig.dbPassword
-        : backendDefaults.dbPassword,
-    apiPort:
-      dbConfig && dbConfig.apiPort ? dbConfig.apiPort : backendDefaults.apiPort,
-    lastError: lastStartupError,
-  };
-});
-
-ipcMain.on("save-config", (event, config) => {
-  const success = saveConfig(config);
-  event.reply("config-saved", { success });
-
-  if (success) {
-    dialog.showMessageBoxSync(mainWindow, {
-      type: "info",
-      title: "Restart Required",
-      message: "Database settings saved successfully!",
-      detail:
-        "The application needs to restart to apply your new settings. Clicking OK will relaunch the app.",
-      buttons: ["OK"],
-    });
-
-    killBackend(() => {
-      app.relaunch();
-      app.exit(0);
-    });
-  }
-});
-
-ipcMain.on("go-back", () => {
-  if (mainWindow) {
-    lastStartupError = null;
-
-    // Check if backend is running before navigating back
-    if (backendProcess && backendProcess.exitCode === null) {
-      // Backend is running, safe to go back to the main app
-      mainWindow.loadURL("app:///index.html");
-    } else {
-      // Backend is not running, restart it first
-      setupRequestInterception();
-      startBackend();
-
-      const port = dbConfig && dbConfig.apiPort ? dbConfig.apiPort : 8080;
-      waitForBackend(port, 40, 500, (online) => {
-        isBackendStarting = false;
-        if (online) {
-          mainWindow.loadURL("app:///index.html");
-          startLiveTrialCheck();
-        } else {
-          if (!lastStartupError) {
-            lastStartupError = "Backend service startup timed out. Please check database settings.";
-          }
-          mainWindow.loadURL("app:///config.html");
-        }
-      });
-    }
-  }
 });
 
 ipcMain.on("close-app", () => {
